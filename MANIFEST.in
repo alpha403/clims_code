@@ -1,0 +1,2 @@
+recursive-include clims_core/data *.md
+include README.md

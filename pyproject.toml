@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clims_code"
+version = "0.1.0"
+description = "Self-hosted, model-agnostic, API-first agentic assistant for all digital work."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "clims_code" }]
+# Core UI deps — needed for `clims` to look good in the terminal
+dependencies = [
+    "rich>=13.0",
+    "prompt_toolkit>=3.0",
+]
+
+[project.optional-dependencies]
+# `pip install clims_code[telegram]` — adds the Telegram bot
+telegram = ["python-telegram-bot>=20.0"]
+# `pip install clims_code[full]` — everything including optional enhancers
+full = [
+    "rich>=13.0",
+    "prompt_toolkit>=3.0",
+    "python-telegram-bot>=20.0",
+    "tiktoken>=0.5",
+    "pypdf>=3.0",
+]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+clims     = "clims_cli.main:main"
+clims-bot = "clims_cli.telegram_bot:main"
+
+# Auto-discover all packages under the repo root; exclude third-party vendored dirs
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["bench*", "f5venv*", "tests*", "*.egg-info*"]
+
+# Include Markdown skill files bundled inside clims_core/data/
+[tool.setuptools.package-data]
+"clims_core" = ["data/skills/**/*.md", "data/skills/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

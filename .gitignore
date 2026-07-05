@@ -1,0 +1,33 @@
+# secrets — never commit keys
+.env
+*.key
+.clims/settings.local.json
+**/settings.local.json
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+venv/
+
+# benchmark scratch / runs
+bench/runs/
+bench/_work/
+*.log
+
+# virtual environments
+cbvenv/
+f5venv/
+
+# large binaries
+ffmpeg/
+
+# scratch files
+nonexistent_dir_xyz/
+
+# duplicate root-level files
+telegram_bot.py
