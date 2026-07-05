@@ -1,127 +1,293 @@
 # Usage
 
-`clims_code` has three entry points: the **CLI**, the **HTTP API server**, and the
-**engine as a library**. The engine needs no third-party packages.
+`clims_code` has four entry points: the **CLI** (`clims`), the **HTTP API server** (`clims-server`), the **Telegram bot** (`clims-bot`), and the **engine as a Python library**.
 
-## 0. BYOK — set a provider key
+---
 
-```powershell
-# DeepSeek (validated)
-$env:DEEPSEEK_API_KEY = "sk-..."
-# or Anthropic
-$env:ANTHROPIC_API_KEY = "sk-ant-..."
-# or a generic override used regardless of provider
-$env:CLIMS_API_KEY = "..."
-```
-
-Keys are read from the environment, used in memory, and **never written to disk**.
-
-## 1. CLI
-
-```powershell
-# interactive REPL
-python -m clims_cli.main
-
-# choose provider/model/permission-mode
-python -m clims_cli.main --provider deepseek --model deepseek-chat --mode default
-
-# headless (one prompt, exit) — good for scripting/CI
-python -m clims_cli.main -p "Summarize every .py file in this folder"
-```
-
-Permission modes: `default` (ask before exec/write), `acceptEdits`, `plan` (read-only),
-`bypass` (allow all — only for trusted automation).
-
-## 2. HTTP API server (the product surface)
-
-```powershell
-$env:CLIMS_SERVER_TOKEN = "my-product-token"   # optional product auth
-python -m clims_server.api                       # serves on 127.0.0.1:8765
-```
-
-Example session (BYOK key travels in the request body):
+## 0. Installation
 
 ```bash
-# create a session
-curl -s -X POST localhost:8765/v1/sessions
-# -> {"session_id":"sess_..."}
+# From GitHub
+pip install git+https://github.com/alpha403/clims_code.git
 
-# send a message, stream SSE
-curl -N -X POST localhost:8765/v1/sessions/sess_xxx/messages \
-  -H "Content-Type: application/json" \
-  -d '{"provider":"deepseek","model":"deepseek-chat","api_key":"sk-...",
-       "message":"create hello.txt with the text hi","permission_mode":"acceptEdits"}'
+# With extras
+pip install git+https://github.com/alpha403/clims_code.git#egg=clims_code[full]
 
-# list models
-curl -s localhost:8765/v1/models
+# Or for development
+git clone https://github.com/alpha403/clims_code.git
+cd clims_code
+pip install -e ".[dev]"
 ```
 
-Run behind nginx/Caddy for TLS and concurrency (the server uses stdlib HTTP).
+> The package installs three CLI entry points: `clims`, `clims-bot`, and `clims-server`.
 
-### OpenAI-compatible endpoint (drop-in integration)
+---
 
-Any OpenAI SDK/client can target clims_code by changing the base URL. The bearer
-token is your BYOK provider key; pick the provider with the `x-clims-provider` header.
+## 1. First run — setup
+
+On first launch, `clims` runs an interactive setup that asks for:
+
+1. **Provider** — choose from: deepseek, anthropic, openai, gemini, ollama, vertex, bedrock
+2. **API key** — your provider key (stored in `.clims/credentials.json`, masked in prompts)
+3. **Telegram bot token** (optional) — for bot mode
+4. **ComfyUI URL** (optional) — for image generation
+5. **Permission mode** — default (ask), acceptEdits, plan, bypass
+
+You can skip setup and just set the env var directly:
 
 ```bash
-curl -s localhost:8765/v1/chat/completions \
-  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
-  -H "x-clims-provider: deepseek" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}'
+export DEEPSEEK_API_KEY="sk-..."
+clims
 ```
+
+---
+
+## 2. Interactive CLI
+
+```bash
+clims                              # default provider
+clims --provider openai --model gpt-4o
+clims --mode acceptEdits           # auto-approve
+clims --resume                     # resume last session
+clims -i screenshot.png            # attach image
+```
+
+### Slash commands
+
+```
+/help                        — list all commands
+/model [name]                — show/switch model
+/style [name]                — show/switch output style
+/mode [name]                 — show/switch permission mode
+/cost                        — token usage this session
+/clear                       — clear context
+/compact                     — summarize old turns
+/rewind [n]                  — go back n turns
+/resume [id]                 — reload a saved session
+/init                        — create CLIMS.md template
+/memory                      — show memory state
+/export [path]               — export conversation as JSON
+/config                      — show current config (keys masked)
+/doctor                      — system diagnostics
+/diagnostics                 — show IDE diagnostics
+/status                      — token totals
+/permissions                 — show permission rules
+/tools                       — list available tools
+/mcp                         — list MCP connections
+/agents                      — list file-defined agents
+/commands                    — list custom slash commands
+/update                      — check for updates (if git repo)
+/vim                         — toggle vim keybindings
+/terminal-setup              — write default keybindings
+
+/research <question>         — deep research (parallel search+fetch+synthesize+fact-check)
+/bg <task>                   — background agent task
+/tasks                       — list background tasks
+/bg-result <id>              — get background task result
+/schedule add|list|remove    — recurring tasks
+/workflow <name>             — run a workflow
+/workflows                   — list available workflows
+
+/bot start|stop|status|log   — Telegram bot control
+```
+
+### Plan mode
+
+1. Type your request normally
+2. The agent researches read-only and presents a plan
+3. You review and type `y` to approve
+4. The agent executes the plan
+
+---
+
+## 3. Headless mode (scripting/CI)
+
+```bash
+clims -p "Refactor this file"                           # text output
+clims -p "Fix all lint errors" --output-format json     # JSON
+clims -p "Summarize" --output-format stream-json        # JSONL events
+clims -p "Create report" --provider openai --model gpt-4o
+```
+
+---
+
+## 4. HTTP API server
+
+```bash
+clims-server                    # serves on 127.0.0.1:8765
+export CLIMS_SERVER_TOKEN="x"   # optional bearer auth
+```
+
+### Endpoints
+
+```
+POST /v1/sessions                                → create session
+POST /v1/sessions/{id}/messages                  → SSE stream (agent response)
+GET  /v1/sessions/{id}                           → session metadata + history
+DELETE /v1/sessions/{id}                         → delete
+GET  /v1/sessions                                → list
+GET  /v1/models                                  → providers + capabilities
+POST /v1/tool-results/{tool_use_id}              → approve/deny a tool
+GET  /healthz                                    → liveness
+```
+
+### SSE event protocol
+
+```
+event: text_delta         data: {"text":"..."}
+event: thinking_delta     data: {"text":"..."}
+event: tool_use           data: {"id":"...","name":"bash","input":{...}}
+event: permission_request data: {"tool_use_id":"...","tool":"bash","input":{...}}
+event: tool_result        data: {"tool_use_id":"...","is_error":false,"content":[...]}
+event: usage              data: {"input_tokens":..,"output_tokens":..}
+event: error              data: {"message":"...","type":"..."}
+event: done               data: {"stop_reason":"end_turn"}
+```
+
+### OpenAI-compatible endpoint
+
+```bash
+POST /v1/chat/completions
+```
+
+Any OpenAI SDK can target clims_code by changing the base URL. The bearer token is your BYOK provider key; pick the provider with the `x-clims-provider` header.
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://localhost:8765/v1", api_key="<your-deepseek-key>")
-client.chat.completions.create(model="deepseek-chat",
-    messages=[{"role": "user", "content": "hello"}])  # streaming supported too
+client = OpenAI(
+    base_url="http://localhost:8765/v1",
+    api_key="<your-deepseek-key>"
+)
+# streaming supported too
+stream = client.chat.completions.create(
+    model="deepseek-chat",
+    messages=[{"role": "user", "content": "hello"}],
+    stream=True
+)
 ```
 
-### Headless output formats
+---
 
-```powershell
-python -m clims_cli.main -p "list files" --output-format json         # one JSON object
-python -m clims_cli.main -p "list files" --output-format stream-json  # JSONL events
+## 5. Telegram bot
+
+```bash
+clims-bot
 ```
 
-## 3. As a library (SDK)
+Requires a Telegram bot token (set via `/setup` in the interactive CLI or in `.clims/credentials.json`).
+The bot runs as a background process and responds to messages in the configured chat.
+
+Commands in Telegram:
+```
+/start     — welcome + help
+/help      — command list
+/model     — show/switch model
+/mode      — show/switch permission mode
+/cancel    — interrupt current response
+/config    — show config
+/clear     — clear context
+/research  — deep research
+/setkey    — update a credential
+/users     — list/manage allowed users
+/admin     — list/manage admins
+```
+
+---
+
+## 6. Memory system
+
+Two memory layers:
+
+- **CLIMS.md** — project-level instructions. Place at project root (or `~/.clims/CLIMS.md` for global). Supports `@import path/to/file.md`. Loaded into every system prompt.
+- **`.clims/memory/`** — agent's private cross-session notebook. The agent reads/writes it with the `memory` tool. Persists across sessions.
+
+Created with `/init` if it doesn't exist.
+
+---
+
+## 7. Configuration files
+
+Settings merged low → high priority:
+
+```
+~/.clims/settings.json
+./.clims/settings.json
+./.clims/settings.local.json
+```
+
+Keys: `provider`, `model`, `permission_mode`, `temperature`, `max_tokens`, `allow`, `deny`, `ask`, `system`, `hooks`, `proactive_memory`, `output_style`, `background_tasks`, `schedules`.
+
+Credentials stored in `.clims/credentials.json` (never committed).
+
+---
+
+## 8. MCP servers
+
+Connect at runtime — just ask:
+
+```
+"connect github with <token>"
+"connect filesystem for ./data"
+"connect postgres with postgresql://..."
+```
+
+Or configure in `settings.json`:
+
+```json
+{
+  "mcp_servers": [
+    {"name": "github", "token": "ghp_..."},
+    {"name": "filesystem", "args": ["./data"]}
+  ]
+}
+```
+
+Known servers resolvable by name: github, slack, postgres, filesystem, brave-search, gitlab, puppeteer, sqlite, redis, email, playwright, sequential-thinking, everything, fetch, sentry, cloudflare, docker, k8s.
+
+---
+
+## 9. Hooks
+
+Run external scripts on agent lifecycle events. Configured in `settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": ["python scripts/audit_tool.py"],
+    "Notification": ["notify-send clims 'Task complete'"]
+  }
+}
+```
+
+Events: `SessionStart`, `PreCompact`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`.
+
+The hook script receives JSON on stdin. Return `{"block": true, "reason": "..."}` to deny, or `{"context": "..."}` to append to the tool result.
+
+---
+
+## 10. Workflows
+
+Python scripts in `.clims/workflows/*.py` that use `WorkflowAPI`:
 
 ```python
-from clims_core.agent.loop import Agent
-from clims_core.agent.message import Message
-from clims_core.agent.runtime import ToolRuntime
-from clims_core.permissions.policy import PermissionMode, PermissionPolicy
-from clims_core.providers import get_provider
-from clims_core.tools import default_tools, tool_map
-from clims_core.tools.base import ToolContext
+from clims_core.workflows import WorkflowAPI
 
-provider = get_provider("deepseek")
-runtime = ToolRuntime(tool_map(default_tools()),
-                      PermissionPolicy(mode=PermissionMode.BYPASS),
-                      ToolContext())
-agent = Agent(provider=provider, model="deepseek-chat", api_key="sk-...",
-              runtime=runtime, temperature=0)
-result = agent.send([Message.user("List the files here and summarize.")],
-                    on_event=lambda e: print(e.text, end=""))
+def run(api: WorkflowAPI):
+    files = api.agent("List changed files").splitlines()
+    reviews = api.parallel(
+        [lambda f=f: api.agent(f"Review {f}") for f in files]
+    )
+    api.agent(f"Summarize reviews:\n" + "\n".join(reviews))
 ```
 
-## 4. Memory (CLIMS.md)
+Run with: `/workflow <name>`
 
-Drop a `CLIMS.md` in your project (or `~/.clims/CLIMS.md` for global rules). Its
-content is injected into the system prompt. Supports `@import path/to/file.md`.
+---
 
-## 5. Settings
+## 11. Tests
 
-JSON files merged low→high precedence:
-`~/.clims/settings.json` → `./.clims/settings.json` → `./.clims/settings.local.json`.
-Keys: `provider`, `model`, `permission_mode`, `temperature`, `max_tokens`,
-`allow`, `deny`, `ask`, `system`.
-
-## 6. Tests & benchmarks
-
-```powershell
-python -m pytest tests -q                                   # offline unit tests
-python -m bench.live_smoke                                  # live smoke (needs key)
-python -m bench.run_benchmarks --suite all --trials 3       # full benchmark
+```bash
+pip install -e ".[dev]"
+pytest tests/ -q                # 212 offline tests
+pytest tests/ -q -k "not render"  # skip rich/capsys tests
 ```

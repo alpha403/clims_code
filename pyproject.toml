@@ -30,8 +30,9 @@ full = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-clims     = "clims_cli.main:main"
-clims-bot = "clims_cli.telegram_bot:main"
+clims       = "clims_cli.main:main"
+clims-bot   = "clims_cli.telegram_bot:main"
+clims-server = "clims_server.api:serve"
 
 # Auto-discover all packages under the repo root; exclude third-party vendored dirs
 [tool.setuptools.packages.find]
